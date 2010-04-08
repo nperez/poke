@@ -3,8 +3,11 @@ use MooseX::Declare;
 
 role Poke::Role::Job
 {
+    use MooseX::Types::Moose(':all');
     use Scalar::Util('weaken');
     requires qw/setup run/;
+
+    has frequency => (is => 'ro', isa => Int, default => sub { 60 });
 
     method init_job
     {
