@@ -3,6 +3,7 @@ use MooseX::Declare;
 
 class Poke
 {
+    use POE;
     use aliased 'POEx::Role::Event';
     use POEx::Types(':all')
     use MooseX::Types::Moose(':all');
@@ -15,6 +16,7 @@ class Poke
     use Moose::Autobox;
 
     with 'POEx::Role::SessionInstantiation';
+    with 'Poke::Role::ConfigLoader';
     with 'MooseX::Role::BuildInstanceOf' =>
     {
         target => 'POEx::WorkerPool',
@@ -27,44 +29,13 @@ class Poke
         prefix => 'reporter',
     };
 
-    has config_source =>
-    (
-        is => 'ro', 
-        isa => subtype Str, where { -e $_ },
-        required => 1
-    );
-
-    has config =>
-    (
-        is => 'ro',
-        isa => PokeConfig,
-        traits => ['Hash'],
-        handles =>
-        {
-            'poke_config' => [ get => 'Poke'],
-        },
-        lazy_build => 1,
-    );
-    method _build_config { Poke::Util->load_config($self->config_source) }
-
-
-    has jobs_configuration =>
-    (
-        is => 'ro',
-        isa => JobConfiguration, #ArrayRef[Tuple[ClassName, HashRef]],
-        lazy_build => 1,
-    );
-
-    method _build_jobs_configuration
+    with 'MooseX::Role::BuildInstanceOf' =>
     {
-        my $jcfg = $self->config
-            ->kv
-            ->grep(sub {$_->[0] != 'Poke'});
-
-        $jcfg->each(sub {Class::MOP::load_class($_->[0])});
-
-        return $jcfg;
+        target => 'Poke::Logger',
+        prefix => 'logger',
     }
+
+    has +logger => ( handles => [qw/debug info notice warning error/] );
 
     has pool_attrs =>
     (
@@ -109,14 +80,19 @@ class Poke
     after _start is Event
     {
         $self->setup_args_from_config();
+        $self->info('Poke configuration loaded');
         $self->spin_up_constituents();
+        $self->info(q|Let's start poking!|);
         $self->go();
     }
 
     method spin_up_constituents
     {
+        $self->info('Spinning up the WorkerPool');
         $self->pool();
+        $self->info('Spinning up the Reporter');
         $self->reporter();
+        $self->info('Subscribing to WorkerPool workers');
         $self->pool->workers->each
         (
             sub
@@ -139,10 +115,12 @@ class Poke
         
        $self->pool_args($pool_args);
        $self->reporter_args($reporter_args);
+       $self->logger_args([config_source => $self->config_source]);
     }
 
     method go
     {
+        $self->info('Scheduling jobs for first run');
         $self->jobs_configuration->each
         (
             sub
@@ -161,20 +139,32 @@ class Poke
 
     method run_job(JobConfiguration $jcfg) is Event
     {
+        $self->info("Trying to run Job: ${\$jcfg->[0]}");
         try
         {
             my $worker = $self->pool->get_next_worker();
+            $self->info("Gathered next worker: ${\$worker->ID}");
             my $job = $jcfg->[0]->new(%{$jcfg->[1]});
+            $self->info("Instantiated Job: ${\$job->ID}");
             $worker->enqueue_job($job);
+            $self->info('Job enqueued');
             $worker->start_processing();
+            $self->info('Go go go gadget worker!');
         }
         catch(NoAvailableWorkers $err)
         {
+            $self->info('All workers are busy, requeing job to run a short time later');
             $self->poe->kernel->set_delay('run_job', $self->retry_delay, $jcfg);
         }
         catch($err)
         {
+            $self->error("Something horrible happened with ${\$jcfg->[0]}: $err");
         }
+    }
+
+    method start_poking
+    {
+        POE::Kernel->run();
     }
 }
 1;
@@ -185,8 +175,8 @@ __END__
     ## SomeJob.pm reachable via @INC
     package SomeJob;
     use Moose;
+    use namespace::autoclean;
     use MyFrob;
-    with 'Poke::Role::Job';
     
     has some_argument => (is => 'ro', isa => 'Int', required => 1);
     has frob => (is => 'ro', isa => 'Object', lazy_build => 1);
@@ -195,6 +185,10 @@ __END__
     sub setup { shift->frob; } # build our frobber across the process boundary
 
     sub run { my $self = shift; $self->frob->awesome_sauce($self->some_argument); }
+    
+    with 'Poke::Role::Job';
+    __PACKAGE__->meta->make_immutable();
+    1;
 
     ## /path/to/some/file.ini
     
@@ -206,12 +200,19 @@ __END__
     httpd = yes
     httpd_port = 12345
 
+    [Log]
+    class = Log::Dispatch::Syslog
+    min_level = info
+    facility = daemon
+    ident = Poke!
+    format = '[%p] %m'
+
     [SomeJob]
     frequency = 60
     some_argument = 42
     
     ## Now spin it up
-    poked --config /path/to/some/file.ini
+    poked --config_source /path/to/some/file.ini
 
 =head1 DESCRIPTION
 

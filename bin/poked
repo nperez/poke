@@ -1,0 +1,3 @@
+#!/usr/bin/env perl
+use Poke::Cmd;
+Poke::Cmd->new_with_options()->run_it();
