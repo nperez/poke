@@ -14,8 +14,6 @@ class Poke::Reporter
     use Scalar::Util('blessed');
     use DateTime;
 
-    with 'Poke::Role::ConfigLoader';
-
     with 'MooseX::Role::BuildInstanceOf' => 
     {
         target => 'Poke::Schema',

@@ -22,8 +22,10 @@ role Poke::Role::ConfigLoader
         traits => ['Hash'],
         handles =>
         {
-            'poke_config' => [ get => 'Poke'],
-            'log_config' => [ get => 'Log'],
+            'poke_config'       => [ get => 'Poke'],
+            'logger_config'     => [ get => 'Logger'],
+            'schema_config'     => [ get => 'Schema'],
+            'web_config'        => [ get => 'Web' ],
         },
         lazy_build => 1,
     );
@@ -40,7 +42,7 @@ role Poke::Role::ConfigLoader
     {
         my $jcfg = $self->config
             ->kv
-            ->grep(sub {[qw/Poke Log/]->all != $_->[0]});
+            ->grep(sub {[qw/Poke Logger Schema Web/]->all != $_->[0]});
 
         $jcfg->each(sub {Class::MOP::load_class($_->[0])});
 

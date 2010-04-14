@@ -17,25 +17,39 @@ class Poke
 
     with 'POEx::Role::SessionInstantiation';
     with 'Poke::Role::ConfigLoader';
+
     with 'MooseX::Role::BuildInstanceOf' =>
     {
         target => 'POEx::WorkerPool',
         prefix => 'pool',
     };
+    
+    with 'MooseX::Role::BuildInstanceOf' =>
+    {
+        target => 'Poke::Schema',
+        prefix => 'schema',
+        constructor => 'connect',
+    };
+    
+    with 'MooseX::Role::BuildInstanceOf' =>
+    {
+        target => 'Poke::Logger',
+        prefix => 'logger',
+    };
+    
+    has +logger => ( handles => [qw/debug info notice warning error/] );
+    
+    with 'MooseX::Role::BuildInstanceOf' =>
+    {
+        target => 'Poke::Web',
+        prefix => 'web',
+    }
 
     with 'MooseX::Role::BuildInstanceOf' =>
     {
         target => 'Poke::Reporter',
         prefix => 'reporter',
     };
-
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Logger',
-        prefix => 'logger',
-    }
-
-    has +logger => ( handles => [qw/debug info notice warning error/] );
 
     has pool_attrs =>
     (
@@ -50,19 +64,6 @@ class Poke
         return uniq(@$attrs);
     }
     
-    has reporter_attrs =>
-    (
-        is => 'ro',
-        isa => ArrayRef[Str],
-        lazy_build => 1,
-    );
-
-    method _build_reporter_attrs 
-    {
-        my $attrs = [Poke::Reporter->meta->get_all_attributes()]->map(sub{ $_->name });
-        return uniq(@$attrs);
-    }
-
     has stagger_range =>
     (
         is => 'ro',
@@ -107,15 +108,13 @@ class Poke
         my $pool_args = $self->poke_config
             ->kv
             ->grep( sub {$self->pool_attrs->any = $_->[0]} )
-            ->push( {job_classes => $self->jobs_configuration->map(sub{ $_->[0] })} );
+            ->push( [job_classes => $self->jobs_configuration->map(sub{ $_->[0] })] );
 
-        my $reporter_args = $self->poke_config
-            ->kv
-            ->grep( sub {$self->reporter_attrs->any = $_->[0]} );
-        
-       $self->pool_args($pool_args);
-       $self->reporter_args($reporter_args);
-       $self->logger_args([config_source => $self->config_source]);
+       $self->pool_args([$pool_args->flatten_deep(2)]);
+       $self->schema_args([$self->schema_config->flatten]);
+       $self->logger_args([$self->logger_config->flatten]);
+       $self->web_args([($self->web_config->flatten), schema => $self->schema, logger => $self->logger]);
+       $self->reporter_args([schema => $self->schema, logger => $self->logger]);
     }
 
     method go
@@ -194,13 +193,17 @@ __END__
     
     [Poke]
     max_workers = 3
+
+    [Schema]
     dsn = dbi:SQLite:thingy.db
     user = ''
     password = ''
-    httpd = yes
-    httpd_port = 12345
 
-    [Log]
+    [Web]
+    port = 12345
+    host = localhost
+
+    [Logger]
     class = Log::Dispatch::Syslog
     min_level = info
     facility = daemon
@@ -212,7 +215,7 @@ __END__
     some_argument = 42
     
     ## Now spin it up
-    poked --config_source /path/to/some/file.ini
+    poked --config /path/to/some/file.ini
 
 =head1 DESCRIPTION
 
