@@ -1,4 +1,6 @@
 Revision history for Poke: {{ $dist->version }}
 
 {{ $NEXT }}
+
+1.101040  2010-04-14 15:58:52 America/Chicago
         Initial Release
