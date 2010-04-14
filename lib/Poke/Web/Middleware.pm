@@ -5,10 +5,11 @@ role Poke::Web::Middleware
 {
     use POEx::Types::PSGIServer(':all');
     use MooseX::Types::Moose(':all');
+    use Scalar::Util('weaken');
 
     has app => (is => 'ro', isa => CodeRef, required => 1);
     has response => (is => 'ro', isa => PSGIResponse);
-    has env => (is => 'ro', isa => HashRef);
+    has env => (is => 'rw', isa => HashRef);
 
     method wrap(ClassName $class: CodeRef $app, @args)
     {
@@ -21,7 +22,7 @@ role Poke::Web::Middleware
         $self->env($env);
         $self->preinvoke();
         $self->invoke();
-        $sell->postinvoke();
+        $self->postinvoke();
     }
 
     method preinvoke()
@@ -40,8 +41,8 @@ role Poke::Web::Middleware
     }
 
     method to_app()
-    {
-        return sub { weaken($self); $self->call(@_) };
+    {   
+        return sub { $self->call(@_) };
     }
 }
 

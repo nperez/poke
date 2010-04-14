@@ -7,7 +7,6 @@ class Poke::Util
     method load_config(ClassName $class: Str $file)
     {
         my $cfg = Config::Any->load_files({ files => [$file], use_ext => 1 })->[0]->{$file};
-        $cfg->{config_source} = $file;
         return $cfg;
     }
 }

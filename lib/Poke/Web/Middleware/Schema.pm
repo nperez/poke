@@ -5,12 +5,8 @@ class Poke::Web::Middleware::Schema
 {
     with 'Poke::Web::Middleware';
     use MooseX::Types::Moose(':all');
-
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Schema',
-        prefix => 'schema',
-    };
+    
+    has schema => (is => 'ro', isa => 'Poke::Schema', required => 1);
 
     after preinvoke()
     {

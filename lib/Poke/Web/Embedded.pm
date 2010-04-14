@@ -1,11 +1,10 @@
-use Web::Simple('Poke::Web::Embeded');
+use Web::Simple('Poke::Web::Embedded');
 {
-    package Poke::Web::Embeded;
+    package Poke::Web::Embedded;
     use HTML::Zoom;
     use DBIx::Class::ResultClass::HashRefInflator;
-    use Poke::Web::Middleware::Logger;
-    use Poke::Web::Middleware::Schema;
-    use Poke::Web::ConfigLoader;
+    use Poke::ConfigLoader;
+    use Perl6::Junction;
 
 my $html = <<HTML;
 <html>
@@ -15,8 +14,12 @@ my $html = <<HTML;
 <div class="main_container">
 <div class="service">
 <table>
-<thead><tr><th>Job Name</th><th>Job Status</th><th>Job Start</th><th>Job Stop</th></thead>
-<tbody><tr><td class="job_name"/><td class="job_status"/><td class="job_start"/><td class="job_stop"/></tr></tbody>
+<thead><tr><th>Job Name</th><th>Job ID</th><th>Job Status</th><th>Job Start</th><th>Job Stop</th></thead>
+<tbody id="statuses">
+    <tr>
+        <td class="job_name"></td><td class="job_uuid"></td><td class="job_status"></td><td class="job_start"></td><td class="job_stop"></td>
+    </tr>
+</tbody>
 <tfoot></tfoot>
 </table>
 </div>
@@ -26,80 +29,54 @@ my $html = <<HTML;
 
 HTML
 
+    my $logger;
+    sub set_logger { shift; $logger = shift; }
+    
+    my $schema;
+    sub set_schema { shift; $schema = shift; }
+
     dispatch
     {
         sub (GET)
         {
+            my $res = $schema->resultset('PokeResults');
+            $res->result_class('DBIx::Class::ResultClass::HashRefInflator');
+            
+            my $repeat = 
+            [
+                map
+                {
+                    my $row = $_;
+                    sub
+                    {
+                        shift->select('.job_name')
+                        ->replace_content($row->{job_name})
+                        ->select('.job_uuid')
+                        ->replace_content($row->{job_uuid})
+                        ->select('.job_status')
+                        ->replace_content($row->{job_status})
+                        ->select('.job_start')
+                        ->replace_content($row->{job_start})
+                        ->select('.job_stop')
+                        ->replace_content($row->{job_stop});
+                    },
+                }
+                $res->all()
+            ];
+
             my $output = HTML::Zoom
                 ->from_html($html)
-                ->select('.main_container')
-                ->repeat_content
-                (
-                    [
-                        map
-                        {
-                            my $row = $_;
-                            my @subs;
-                            foreach my $key (keys %$row)
-                            {
-                                push
-                                (
-                                    @subs,
-                                    sub
-                                    {
-                                        my $foo = shift;
-                                        $foo->select('.service')
-                                        ->select(".$key")
-                                        ->replace_content($row->{$key});
-                                    }
-                                );
-                            }
-                            @subs;
-                        }
-                        map
-                        {
-                            
-                        }
-                        @{
-                            my $result = $self->env->{'poke.web.middleware.schema'}
-                                ->resultset('PokeResults');
-                            $result->result_class('DBIx::Class::ResultClass::HashRefInflator');
-                            $result->all();
-                        }
-                    ]
-                )
+                ->select('#statuses')
+                ->repeat_content($repeat)
                 ->to_fh();
-            return [ 200, [ 'Content-type', 'text/plain' ], $output ];
+
+            return [ 200, [ 'Content-type', 'text/html' ], $output ];
         },
         sub ()
         {
             return [ 404, [ 'Content-type', 'text/plain' ], [ 'Error: Not Found' ] ];
         }
     };
-
-    sub gen_app
-    {
-        shift if ref $_[0];
-
-        my $app = Poke::Web::Embedded->run_if_script();
-
-        my %config = @_;
-        if(!%config)
-        {
-            require FindBin;
-            my $loaded_config = Poke::Web::ConfigLoader->new(config_source => "$FindBin::Bin/poke.ini");
-            $app = Poke::Web::Middleware::Logger->wrap($app, logger_args => [%{$loaded_config->logger_config}]);
-            $app = Poke::Web::Middleware::Schema->wrap($app, schema_args => [%{$loaded_config->schema_config}]);
-        }
-        else
-        {
-            $app = Poke::Web::Middleware::Logger->wrap($app, logger => $config{logger});
-            $app = Poke::Web::Middleware::Schema->wrap($app, schema => $config{schema});
-        }
-
-        
-        return $app;
-    }
 }
 
-Poke::Web::Embeded->gen_app();
+Poke::Web::Embedded->run_if_script();

@@ -3,6 +3,7 @@ use MooseX::Declare;
 
 class Poke::Job::HTTP with Poke::Role::Job
 {
+    use Moose::Util::TypeConstraints;
     use MooseX::Types::URI('Uri');
     use HTTP::Request;
     use LWP::UserAgent;

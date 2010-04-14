@@ -5,12 +5,8 @@ class Poke::Web::Middleware::Logger
 {
     with 'Poke::Web::Middleware';
     use MooseX::Types::Moose(':all');
-
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Logger',
-        prefix => 'logger',
-    };
+    
+    has logger => (is => 'ro', isa => 'Poke::Logger', required => 1);
 
     after preinvoke()
     {

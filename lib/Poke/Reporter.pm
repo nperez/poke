@@ -14,20 +14,20 @@ class Poke::Reporter
     use Scalar::Util('blessed');
     use DateTime;
 
-    with 'MooseX::Role::BuildInstanceOf' => 
-    {
-        target => 'Poke::Schema',
-        prefix => 'schema',
-        constructor => 'connect',
-    };
+    has logger =>
+    (
+        is => 'ro',
+        isa => 'Poke::Logger',
+        required => 1,
+        handles => [qw/ debug info notice warning error /]
+    );
 
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Logger',
-        prefix => 'logger',
-    };
-
-    has +logger => ( handles => [qw/debug info notice warning error/] );
+    has schema =>
+    (
+        is => 'ro',
+        isa => 'Poke::Schema',
+        required => 1, 
+    );
 
     has subscribed_workers =>
     (
@@ -39,7 +39,14 @@ class Poke::Reporter
 
     after _start is Event
     {
+        $self->poe->kernel->sig('DIE', 'exception_handler');
         $self->check_db();
+    }
+
+    method exception_handler(Str $sig, HashRef $ex) is Event
+    {
+        $self->poe->kernel->sig_handled();
+        $self->error("Exception occured in $ex->{event}: $ex->{error_str}");
     }
 
     method check_db
@@ -49,7 +56,7 @@ class Poke::Reporter
             sub
             {
                 my ($storage, $dbh) = @_;
-                unless ( @{ $dbh->table_info('', '', 'pokeresults', 'TABLE')->fetchall_arrayref } ) 
+                unless ( @{ $dbh->table_info(undef, undef, 'pokeresults', 'TABLE')->fetchall_arrayref } ) 
                 {
                     $self->schema->deploy();
                 }
@@ -57,28 +64,30 @@ class Poke::Reporter
         );
     }
 
-    method subscribe_to_worker(DoesWorker $worker)
+    method subscribe_to_worker(DoesWorker $worker) is Event
     {
-        if($self->subscribed_workers->any != $worker->ID)
+        if($self->subscribed_workers->all != $worker->ID)
         {
+            $self->poe->kernel->refcount_increment($self->ID, 'SUBSCRIBED_WORKERS');
             $self->info("Subscribing to ${\$worker->ID}");
-            my ($kernel, $palias) = ($self->poe->kernel, $worker->pubsub);
-            $kernel->call($palias, 'subscribe', event_name => +PXWP_JOB_START, event_handler => 'job_started');
-            $kernel->call($palias, 'subscribe', event_name => +PXWP_JOB_COMPLETE, event_handler => 'job_completed');
-            $kernel->call($palias, 'subscribe', event_name => +PXWP_JOB_FAILED, event_handler => 'job_failed');
+            my $palias = $worker->pubsub_alias;
+            $self->call($palias, 'subscribe', event_name => +PXWP_JOB_START, event_handler => 'job_started');
+            $self->call($palias, 'subscribe', event_name => +PXWP_JOB_COMPLETE, event_handler => 'job_completed');
+            $self->call($palias, 'subscribe', event_name => +PXWP_JOB_FAILED, event_handler => 'job_failed');
             $self->subscribed_workers->push($worker->ID);
         }
     }
 
-    method unsubscribe_from_worker(DoesWorker $worker)
+    method unsubscribe_from_worker(DoesWorker $worker) is Event
     {
-        if($self->subscribed_workers->any = $worker->ID)
+        if($self->subscribed_workers->any == $worker->ID)
         {
+            $self->poe->kernel->refcount_decrement($self->ID, 'SUBSCRIBED_WORKERS');
             $self->info("Unsubscribing from ${\$worker->ID}");
-            my ($kernel, $palias) = ($self->poe->kernel, $worker->pubsub);
-            $kernel->call($palias, 'cancel', event_name => +PXWP_JOB_START);
-            $kernel->call($palias, 'cancel', event_name => +PXWP_JOB_COMPLETE);
-            $kernel->call($palias, 'cancel', event_name => +PXWP_JOB_FAILED);
+            my $palias = $worker->pubsub_alias;
+            $self->call($palias, 'cancel', event_name => +PXWP_JOB_START);
+            $self->call($palias, 'cancel', event_name => +PXWP_JOB_COMPLETE);
+            $self->call($palias, 'cancel', event_name => +PXWP_JOB_FAILED);
             $self->_set_subscribed_workers($self->subscribed_workers->grep(sub{$worker->ID != $_}));
         }
     }
@@ -94,13 +103,13 @@ class Poke::Reporter
         };
         
         $self->info("Job Started: ${\$job->ID}");
-        $self->schema->result_set->new_result($vals)->insert();
+        $self->schema->resultset('PokeResults')->new_result($vals)->insert();
     }
 
     method job_completed(SessionID :$worker_id, DoesJob :$job, Ref :$msg) is Event
     {
         $self->info("Job Completed: ${\$job->ID}");
-        my $db_job = $self->schema->result_set->find($job->ID, { key => 'uuid_of_job' });
+        my $db_job = $self->schema->resultset('PokeResults')->find($job->ID, { key => 'uuid_of_job' });
         $db_job->job_stop(DateTime->now());
         $db_job->job_status('success');
         $db_job->update();
@@ -109,7 +118,7 @@ class Poke::Reporter
     method job_failed(SessionID :$worker_id, DoesJob :$job, Ref :$msg) is Event
     {
         $self->info("Job Failed: ${\$job->ID}\n\n $$msg");
-        my $db_job = $self->schema->result_set->find($job->ID, { key => 'uuid_of_job' });
+        my $db_job = $self->schema->resultset('PokeResults')->find($job->ID, { key => 'uuid_of_job' });
         $db_job->job_stop(DateTime->now());
         $db_job->job_status('fail');
         $db_job->update();

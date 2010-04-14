@@ -1,7 +1,7 @@
-package Poke::Role::ConfigLoader;
+package Poke::ConfigLoader;
 use MooseX::Declare;
 
-role Poke::Role::ConfigLoader
+class Poke::ConfigLoader
 {
     use Moose::Util::TypeConstraints;
     use MooseX::Types::Moose(':all');
@@ -21,35 +21,36 @@ role Poke::Role::ConfigLoader
         is => 'ro',
         isa => PokeConfig,
         traits => ['Hash'],
+        lazy_build => 1,
         handles =>
         {
             'poke_config'       => [ get => 'Poke'],
             'logger_config'     => [ get => 'Logger'],
             'schema_config'     => [ get => 'Schema'],
-            'web_config'        => [ get => 'Web' ],
+            'web_config'        => [ get => 'Web'],
+            'pool_config'       => [ get => 'WorkerPool'],
         },
-        lazy_build => 1,
     );
     method _build_config { Poke::Util->load_config($self->config_source) }
 
-    has jobs_configuration =>
+    has jobs_config =>
     (
         is => 'ro',
-        isa => JobConfiguration, #ArrayRef[Tuple[ClassName, HashRef]],
+        isa => JobConfigurations,
         lazy_build => 1,
     );
 
-    method _build_jobs_configuration
+    method _build_jobs_config
     {
+        my $junc = [qw/Poke Logger Schema Web WorkerPool/]->all;
         my $jcfg = $self->config
             ->kv
-            ->grep(sub {[qw/Poke Logger Schema Web/]->all != $_->[0]});
+            ->grep(sub {$junc ne $_->[0]});
 
-        $jcfg->each(sub {Class::MOP::load_class($_->[0])});
+        $jcfg->each_value(sub {Class::MOP::load_class($_->[0])});
 
         return $jcfg;
     }
-    
 }
 1;
 __END__

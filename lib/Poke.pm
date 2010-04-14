@@ -5,7 +5,7 @@ class Poke
 {
     use POE;
     use aliased 'POEx::Role::Event';
-    use POEx::Types(':all')
+    use POEx::Types(':all');
     use MooseX::Types::Moose(':all');
     use MooseX::Types::Structured(':all');
     use POEx::WorkerPool::Types(':all');
@@ -14,61 +14,58 @@ class Poke
     use Poke::Util;
     use List::AllUtils('uniq');
     use Moose::Autobox;
+    use Moose::Util;
 
     with 'POEx::Role::SessionInstantiation';
-    with 'Poke::Role::ConfigLoader';
 
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'POEx::WorkerPool',
-        prefix => 'pool',
-    };
-    
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Schema',
-        prefix => 'schema',
-        constructor => 'connect',
-    };
-    
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Logger',
-        prefix => 'logger',
-    };
-    
-    has +logger => ( handles => [qw/debug info notice warning error/] );
-    
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Web',
-        prefix => 'web',
-    }
-
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Reporter',
-        prefix => 'reporter',
-    };
-
-    has pool_attrs =>
+    has pool =>
     (
         is => 'ro',
-        isa => ArrayRef[Str],
-        lazy_build => 1,
+        isa => 'POEx::WorkerPool',
+        required => 1
     );
 
-    method _build_pool_attrs 
-    {
-        my $attrs = [POEx::WorkerPool->meta->get_all_attributes()]->map(sub{ $_->name });
-        return uniq(@$attrs);
-    }
-    
-    has stagger_range =>
+    has reporter =>
     (
         is => 'ro',
-        isa => Tuple[Int, Int],
-        default => sub { [5,10] }
+        isa => 'Poke::Reporter',
+        required => 1,
+    );
+
+    has web =>
+    (
+        is => 'ro',
+        isa => 'Poke::Web',
+        required => 1,
+    );
+    
+    has logger =>
+    (
+        is => 'ro',
+        isa => 'Poke::Logger',
+        required => 1,
+        handles => [qw/ debug info notice warning error /]
+    );
+
+    has config =>
+    (
+        is => 'ro',
+        isa => 'Poke::ConfigLoader',
+        required => 1,
+    );
+    
+    has stagger_low =>
+    (
+        is => 'ro',
+        isa => Int,
+        default => 5,
+    );
+    
+    has stagger_high =>
+    (
+        is => 'ro',
+        isa => Int,
+        default => 10,
     );
 
     has retry_time =>
@@ -80,60 +77,63 @@ class Poke
 
     after _start is Event
     {
-        $self->setup_args_from_config();
-        $self->info('Poke configuration loaded');
-        $self->spin_up_constituents();
         $self->info(q|Let's start poking!|);
-        $self->go();
+        $self->set_up_sig_handlers();
+        $self->yield('sub_workers');
+        $self->yield('schedule_jobs');
     }
 
-    method spin_up_constituents
+    method set_up_sig_handlers
     {
-        $self->info('Spinning up the WorkerPool');
-        $self->pool();
-        $self->info('Spinning up the Reporter');
-        $self->reporter();
+        $self->info('Setting up signal handlers');
+        $self->poe->kernel->sig('DIE', 'exception_handler');
+        $self->poe->kernel->sig('INT', 'shut_it_down');
+        $self->poe->kernel->sig('TERM', 'shut_it_down');
+        $self->poe->kernel->sig('HUP', 'shut_it_down');
+    }
+
+    method sub_workers is Event
+    {
         $self->info('Subscribing to WorkerPool workers');
-        $self->pool->workers->each
+        $self->pool->workers->each_value
         (
             sub
             {
-                $self->reporter->subscribe_to_worker($_);
+                $self->call($self->reporter->ID, 'subscribe_to_worker', $_);
             }
         );
     }
     
-    method setup_args_from_config
+    method unsub_workers is Event
     {
-        my $pool_args = $self->poke_config
-            ->kv
-            ->grep( sub {$self->pool_attrs->any = $_->[0]} )
-            ->push( [job_classes => $self->jobs_configuration->map(sub{ $_->[0] })] );
-
-       $self->pool_args([$pool_args->flatten_deep(2)]);
-       $self->schema_args([$self->schema_config->flatten]);
-       $self->logger_args([$self->logger_config->flatten]);
-       $self->web_args([($self->web_config->flatten), schema => $self->schema, logger => $self->logger]);
-       $self->reporter_args([schema => $self->schema, logger => $self->logger]);
-    }
-
-    method go
-    {
-        $self->info('Scheduling jobs for first run');
-        $self->jobs_configuration->each
+        $self->info('Unsubscribing to WorkerPool workers');
+        $self->pool->workers->each_value
         (
             sub
             {
-                $self->poe->kernel->set_delay
-                (
-                    'run_job', 
-                    $_->[1]->frequency 
-                    + int(rand($self->stagger_range->first)) 
-                    + $self->stagger_range->last, 
-                    $_ 
-                );
+                $self->call($self->reporter->ID, 'unsubscribe_from_worker', $_);
             }
         );
+    }
+
+    method schedule_jobs is Event
+    {
+        $self->info('Scheduling jobs for first run');
+        $self->config->jobs_config
+            ->each_value
+            (
+                sub
+                {
+                    $self->poe->kernel->delay_set
+                    (
+                        'run_job', 
+                        $_->[1]->{frequency} 
+                        + int(rand($self->stagger_low)) 
+                        + $self->stagger_high, 
+                        $_
+                    );
+                }
+            );
     }
 
     method run_job(JobConfiguration $jcfg) is Event
@@ -159,11 +159,33 @@ class Poke
         {
             $self->error("Something horrible happened with ${\$jcfg->[0]}: $err");
         }
+
+        $self->poe->kernel->delay_set
+        (
+            'run_job',
+            $jcfg->[1]->{frequency},
+            $jcfg
+        );
     }
 
     method start_poking
     {
         POE::Kernel->run();
+    }
+
+    method exception_handler(Str $sig, HashRef $ex) is Event
+    {
+        $self->poe->kernel->sig_handled();
+        $self->error("Exception occured in $ex->{event}: $ex->{error_str}");
+    }
+
+    method shut_it_down(Str $sig) is Event
+    {
+        $self->info("Received '$sig' and shutting down...");
+        $self->pool->halt();
+        $self->call($self->ID, 'unsub_workers');
+        $self->call($self->web->ID, 'shutdown');
+        $self->poe->kernel->alarm_remove_all();
     }
 }
 1;
@@ -192,6 +214,11 @@ __END__
     ## /path/to/some/file.ini
     
     [Poke]
+    stagger_low = 5
+    stagger_high = 10
+    retry_delay = 5
+
+    [WorkerPool]
     max_workers = 3
 
     [Schema]

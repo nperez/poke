@@ -3,8 +3,14 @@ use MooseX::Declare;
 
 class Poke::Logger
 {
-    with 'MooseX::LogDispatch';
-    with 'Poke::Role::ConfigLoader';
+    with 'MooseX::LogDispatch::Levels';
+    
+    has config =>
+    (
+        is => 'ro',
+        isa => 'Poke::ConfigLoader',
+        predicate => 'has_config',
+    );
 
     has log_dispatch_conf =>
     (
@@ -15,9 +21,10 @@ class Poke::Logger
 
     method _build_log_dispatch_conf
     {
-        if($self->log_config)
+        if($self->has_config)
         {
-            return $self->log_config;
+            my %hash = %{$self->config->logger_config};
+            return \%hash;
         }
         
         return
@@ -30,6 +37,4 @@ class Poke::Logger
             newline => 1,
         };
     }
-
-    has +logger => ( handles => [qw/ debug info notice warning error /] );
 }

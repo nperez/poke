@@ -7,28 +7,26 @@ class Poke::Web
     
     with 'POEx::Role::PSGIServer';
 
-    with 'MooseX::Role::BuildInstanceOf' => 
-    {
-        target => 'Poke::Schema',
-        prefix => 'schema',
-        constructor => 'connect',
-    };
+    has logger =>
+    (
+        is => 'ro',
+        isa => 'Poke::Logger',
+        required => 1,
+        handles => [qw/ debug info notice warning error /]
+    );
 
-    with 'MooseX::Role::BuildInstanceOf' =>
-    {
-        target => 'Poke::Logger',
-        prefix => 'logger',
-    };
+    has schema =>
+    (
+        is => 'ro',
+        isa => 'Poke::Schema',
+        required => 1, 
+    );
 
     after _start
     {
-        my $app = Poke::Web::Embedded->gen_app
-        (
-            logger => $self->logger,
-            schema => $self->schema,
-        );
-
-        $self->psgi_app($app);
+        Poke::Web::Embedded->set_logger($self->logger);
+        Poke::Web::Embedded->set_schema($self->schema);
+        $self->register_service(Poke::Web::Embedded->run_if_script());
     }
 }
 1;
