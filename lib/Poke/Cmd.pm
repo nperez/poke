@@ -2,8 +2,10 @@ package Poke::Cmd;
 sub POE::Kernel::CATCH_EXCEPTIONS () { 0 }
 use MooseX::Declare;
 
-class Poke::Cmd with MooseX::Getopt
+class Poke::Cmd
 {
+    with 'MooseX::Getopt';
+    
     use Bread::Board;
     use Moose::Util::TypeConstraints();
     use Moose::Autobox;
