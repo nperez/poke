@@ -143,7 +143,7 @@ class Poke
         {
             my $worker = $self->pool->get_next_worker();
             $self->info("Gathered next worker: ${\$worker->ID}");
-            my $job = $jcfg->[0]->new(%{$jcfg->[1]});
+            my $job = $jcfg->[1]->{class}->new(%{$jcfg->[1]}, name => $jcfg->[0]);
             $self->info("Instantiated Job: ${\$job->ID}");
             $worker->enqueue_job($job);
             $self->info('Job enqueued');

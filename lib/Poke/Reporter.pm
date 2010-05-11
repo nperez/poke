@@ -96,7 +96,7 @@ class Poke::Reporter
     {
         my $vals = 
         {
-            job_name => blessed($job),
+            job_name => $job->name,
             job_uuid => $job->ID,
             job_start => DateTime->now(),
             job_status => 'inprogress'

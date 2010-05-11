@@ -47,7 +47,7 @@ class Poke::ConfigLoader
             ->kv
             ->grep(sub {$junc ne $_->[0]});
 
-        $jcfg->each_value(sub {Class::MOP::load_class($_->[0])});
+        $jcfg->each_value(sub {Class::MOP::load_class($_->[1]->{class})});
 
         return $jcfg;
     }

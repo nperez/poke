@@ -8,6 +8,7 @@ role Poke::Role::Job
     requires qw/setup run/;
 
     has frequency => (is => 'ro', isa => Int, default => sub { 60 });
+    has name => (is => 'ro', isa => Str, required => 1);
 
     method init_job
     {

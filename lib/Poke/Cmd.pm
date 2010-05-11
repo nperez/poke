@@ -98,7 +98,7 @@ class Poke::Cmd
                     POEx::WorkerPool->new
                     (
                         $s->param('config')->pool_config->flatten,
-                        job_classes => $s->param('config')->jobs_config->map(sub{$_->[0]})
+                        job_classes => $s->param('config')->jobs_config->map(sub{$_->[1]->{class}})
                     );
                 },
                 dependencies => 
