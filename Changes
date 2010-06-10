@@ -1,6 +1,8 @@
 Revision history for Poke: {{ $dist->version }}
 
 {{ $NEXT }}
+
+1.101610  2010-06-10 13:59:36 America/Chicago
         Make use of the OpenEndedWorker role in POEx::WorkerPool
         Change the organization of config where jobs are named by title
             and the class they load is declared as an attribute
