@@ -1,5 +1,4 @@
 package Poke::Cmd;
-sub POE::Kernel::CATCH_EXCEPTIONS () { 0 }
 use MooseX::Declare;
 
 class Poke::Cmd
@@ -46,6 +45,7 @@ class Poke::Cmd
 
             service 'config' => 
             (
+                lifecycle => 'Singleton',
                 block => sub
                 {
                     $self->config_loader();
@@ -54,12 +54,14 @@ class Poke::Cmd
 
             service 'logger' =>
             (
+                lifecycle => 'Singleton',
                 class => 'Poke::Logger',
                 dependencies => { config => depends_on('/config') }
             );
             
             service 'web' =>
             (
+                lifecycle => 'Singleton',
                 class => 'Poke::Web',
                 block => sub
                 {
@@ -69,6 +71,7 @@ class Poke::Cmd
                         $s->param('config')->web_config->flatten,
                         logger => $s->param('logger'),
                         schema => $s->param('schema'),
+                        config => $s->param('config'),
                     )
                 },
                 dependencies =>
@@ -81,6 +84,7 @@ class Poke::Cmd
             
             service 'reporter' =>
             (
+                lifecycle => 'Singleton',
                 class => 'Poke::Reporter',
                 dependencies =>
                 {
@@ -92,6 +96,7 @@ class Poke::Cmd
 
             service 'pool' =>
             (
+                lifecycle => 'Singleton',
                 block => sub
                 {
                     my $s = shift;
@@ -110,6 +115,7 @@ class Poke::Cmd
             
             service 'poke' =>
             (
+                lifecycle => 'Singleton',
                 block => sub
                 {
                     my $s = shift;
@@ -134,7 +140,7 @@ class Poke::Cmd
             );
         };
 
-        $container->get_service('logger')->get()->info("Poke configuration loaded\n");
+        $container->get_service('logger')->get()->info('Poke configuration loaded');
         return $container;
     }
 

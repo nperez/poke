@@ -1,0 +1,183 @@
+<html>
+    <head>
+        <style>
+            html, body, ul, li
+            {
+                padding: 0;
+                margin: 0;
+            }
+
+            .success
+            {
+                background-color: green;
+                color: white;
+            }
+
+            .fail
+            {
+                background-color: red;
+                color: white;
+            }
+
+            .service
+            {
+                width: 100%;
+            }
+
+            .service_header
+            {
+                display: table;
+                width: 100%;
+            }
+            
+            .service_body
+            {
+                display: table;
+                width: 100%;
+            }
+
+            .service_header li
+            {
+                list-style-type: none;
+            }
+
+            .service_summary
+            {
+            }
+
+            .job_field
+            {
+                display: table-cell;
+                text-align: center;
+                width: 25%;
+            }
+
+            .job_row
+            {
+                display: table-row;
+            }
+
+            .job_name
+            {
+                text-decoration: underline;
+                cursor: pointer;
+            }
+
+            .job_link
+            {
+                display: none;
+            }
+
+            .job_uuid
+            {
+                font-family: monospace;
+                font-size: 0.75em;
+            }
+
+            .job_status
+            {
+            }
+
+            .job_start
+            {
+            }
+
+            .job_stop
+            {
+            }
+
+            .service_details
+            {
+                display: none;
+            }
+
+            .service_details_unloaded
+            {
+            }
+
+            .service_details_heading
+            {
+                font-size = 14px;
+            }
+
+            .service_details_row
+            {
+                padding: 10px 0 0 25px;
+            }
+
+        </style>
+        <link type="text/css" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.2/themes/smoothness/jquery-ui.css" rel="Stylesheet"/>
+        <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+        <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.2/jquery-ui.min.js"></script>
+        <script type="text/javascript">
+            $('document').ready
+            (
+                function()
+                {
+                    var $dialog = $('<div></div>')
+                        .dialog
+                        (
+                            {
+                                autoOpen: false,
+                                title: 'Job Details For Last 10 Jobs',
+                                width: 675,
+                                height: 250
+                            }
+                        );
+
+                    $('.service_body').delegate('.job_name', 'click', 
+                        function()
+                        {
+                            var me = $(this);
+                            var link = $('<textarea/>').html(me.siblings('.job_link').html()).val();
+                            $.getJSON
+                            (
+                                link, 
+                                function(data)
+                                {
+                                    var output = '<ul class="service_header">' +
+                                        '<li class="job_field">Job UUID</li>' +
+                                        '<li class="job_field">Job Status</li>' +
+                                        '<li class="job_field">Job Start</li>' +
+                                        '<li class="job_field">Job Stop</li>' +
+                                        '</ul>';
+                                    for(var i = 0; i != data.length - 1; i++)
+                                    {
+                                        output += '<div class="job_row service_details_row">' +
+                                        '<div class="job_field job_uuid">' + data[i].job_uuid + '</div>' +
+                                        '<div class="job_field job_status ' + data[i].job_status + '">' + data[i].job_status + '</div>' +
+                                        '<div class="job_field job_start">' + data[i].job_start + '</div>' +
+                                        '<div class="job_field job_stop">' + data[i].job_stop + '</div>' +
+                                        '</div>';
+                                    }
+                                    $dialog.html(output);
+                                    $dialog.dialog('open');
+                                }
+                            );
+                        }
+                    );
+                }
+            );
+        </script>
+    </head>
+    <body>
+        <div class="service">
+            <ul class="service_header">
+                <li class="job_field">Job Name</li>
+                <li class="job_field">Job Status</li>
+                <li class="job_field">Job Start</li>
+                <li class="job_field">Job Stop</li>
+            </ul>
+            <div class="service_body">
+                <div class="job_row service_summary">
+                    <div class="job_field job_name"></div>
+                    <div class="job_field job_link"></div>
+                    <div class="job_field job_status"></div>
+                    <div class="job_field job_start"></div>
+                    <div class="job_field job_stop"></div>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
+

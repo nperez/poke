@@ -15,7 +15,8 @@ class Poke
     use List::AllUtils('uniq');
     use Moose::Autobox;
     use Moose::Util;
-
+    
+    use POEx::WorkerPool::Worker traits => ['POEx::WorkerPool::Role::WorkerPool::OpenEndedWorker'];
     with 'POEx::Role::SessionInstantiation';
 
     has pool =>
@@ -141,19 +142,10 @@ class Poke
         $self->info("Trying to run Job: ${\$jcfg->[0]}");
         try
         {
-            my $worker = $self->pool->get_next_worker();
-            $self->info("Gathered next worker: ${\$worker->ID}");
             my $job = $jcfg->[1]->{class}->new(%{$jcfg->[1]}, name => $jcfg->[0]);
             $self->info("Instantiated Job: ${\$job->ID}");
-            $worker->enqueue_job($job);
+            my $alias = $self->pool->enqueue_job($job);
             $self->info('Job enqueued');
-            $worker->start_processing();
-            $self->info('Go go go gadget worker!');
-        }
-        catch(NoAvailableWorkers $err)
-        {
-            $self->info('All workers are busy, requeing job to run a short time later');
-            $self->poe->kernel->set_delay('run_job', $self->retry_delay, $jcfg);
         }
         catch($err)
         {

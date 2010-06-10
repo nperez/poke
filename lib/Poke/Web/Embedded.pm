@@ -2,46 +2,44 @@ use Web::Simple('Poke::Web::Embedded');
 {
     package Poke::Web::Embedded;
     use HTML::Zoom;
-    use DBIx::Class::ResultClass::HashRefInflator;
-    use Poke::ConfigLoader;
     use Perl6::Junction;
-
-my $html = <<HTML;
-<html>
-<head>
-</head>
-<body>
-<div class="main_container">
-<div class="service">
-<table>
-<thead><tr><th>Job Name</th><th>Job ID</th><th>Job Status</th><th>Job Start</th><th>Job Stop</th></thead>
-<tbody id="statuses">
-    <tr>
-        <td class="job_name"></td><td class="job_uuid"></td><td class="job_status"></td><td class="job_start"></td><td class="job_stop"></td>
-    </tr>
-</tbody>
-<tfoot></tfoot>
-</table>
-</div>
-</div>
-</body>
-</html>
-
-HTML
+    use DBIx::Class::ResultClass::HashRefInflator;
+    use FindBin;
+    use JSON::Any;
 
     my $logger;
     sub set_logger { shift; $logger = shift; }
     
     my $schema;
     sub set_schema { shift; $schema = shift; }
+    
+    my $conf;
+    sub set_config { shift; $conf = shift; }
+
+    sub build_job_link
+    {
+        my $jobname = shift;
+        return qq|http://${\$conf->web_config->{host}}:${\$conf->web_config->{port}}/job_details?job_name=$jobname|;
+    }
 
     dispatch
     {
-        sub (GET)
+        sub (GET + /)
         {
-            my $res = $schema->resultset('PokeResults');
-            $res->result_class('DBIx::Class::ResultClass::HashRefInflator');
-            
+            my $jobs = [];
+            foreach my $jobname (map { $_->[0] } @{$conf->jobs_config})
+            {
+                my $job = {};
+                $job->{job_name} = $jobname;
+                my $status = $schema->resultset('PokeResults')
+                    ->search({job_name => $jobname}, { order_by => { -desc => [qw/job_stop/] } })
+                    ->first();
+                $job->{job_status} = $status->job_status()->value();
+                $job->{job_start} = $status->job_start()->iso8601();
+                $job->{job_stop} = $status->job_stop()->iso8601();
+                push(@$jobs, $job);
+            }
+
             my $repeat = 
             [
                 map
@@ -49,28 +47,40 @@ HTML
                     my $row = $_;
                     sub
                     {
-                        shift->select('.job_name')
-                        ->replace_content($row->{job_name})
-                        ->select('.job_uuid')
-                        ->replace_content($row->{job_uuid})
+                        shift->select('.job_link')
+                            ->replace_content(build_job_link($row->{job_name}))
+                        ->select('.job_name')
+                            ->replace_content($row->{job_name})
                         ->select('.job_status')
-                        ->replace_content($row->{job_status})
+                            ->add_attribute('class', $row->{job_status})
+                        ->select('.job_status')
+                            ->replace_content($row->{job_status})
                         ->select('.job_start')
-                        ->replace_content($row->{job_start})
+                            ->replace_content($row->{job_start})
                         ->select('.job_stop')
-                        ->replace_content($row->{job_stop});
+                            ->replace_content($row->{job_stop});
                     },
                 }
-                $res->all()
+                @$jobs
             ];
 
             my $output = HTML::Zoom
-                ->from_html($html)
-                ->select('#statuses')
+                ->from_file("$FindBin::Bin/../html/index.html")
+                ->select('.service_body')
                 ->repeat_content($repeat)
                 ->to_fh();
 
             return [ 200, [ 'Content-type', 'text/html' ], $output ];
+        },
+        sub (GET + /job_details + ?job_name=)
+        {
+            my ($self, $job_name) = @_;
+            my $res = $schema->resultset('PokeResults')->search({ job_name => $job_name }, { order_by => { -desc => ['job_stop'] }, rows => 10 });
+            $res->result_class('DBIx::Class::ResultClass::HashRefInflator');
+            my $result = JSON::Any->objToJson([$res->all()]);
+
+            return [ 200, [ 'Content-type', 'text/html' ], [$result] ];
+
         },
         sub ()
         {
