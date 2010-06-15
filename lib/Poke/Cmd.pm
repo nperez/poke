@@ -11,10 +11,15 @@ class Poke::Cmd
     use POEx::WorkerPool;
     use Poke;
     use Poke::Web;
+    use Poke::Web::Embedded;
+    use Poke::Web::Middleware::Config;
+    use Poke::Web::Middleware::Schema;
+    use Poke::Web::Middleware::Logger;
     use Poke::Logger;
     use Poke::Schema;
     use Poke::Reporter;
     use Poke::ConfigLoader;
+
 
     has config => (is => 'ro', isa => Moose::Util::TypeConstraints::subtype('Str', Moose::Util::TypeConstraints::where { -e $_ }), required => 1);
     has config_loader => (init_arg => undef, is => 'ro', isa => 'Poke::ConfigLoader', lazy_build => 1);
@@ -58,6 +63,25 @@ class Poke::Cmd
                 class => 'Poke::Logger',
                 dependencies => { config => depends_on('/config') }
             );
+
+            service 'web_embedded' =>
+            (
+                lifecycle => 'Singleton',
+                block => sub
+                {
+                    my $s = shift;
+                    my $app = Poke::Web::Embedded->as_psgi_app();
+                    $app = Poke::Web::Middleware::Config->wrap($app, config => $s->param('config'));
+                    $app = Poke::Web::Middleware::Logger->wrap($app, logger => $s->param('logger'));
+                    return Poke::Web::Middleware::Schema->wrap($app, schema => $s->param('schema'));
+                },
+                dependencies =>
+                {
+                    config => depends_on('/config'),
+                    logger => depends_on('/logger'),
+                    schema => depends_on('/schema'),
+                }
+            );
             
             service 'web' =>
             (
@@ -70,15 +94,14 @@ class Poke::Cmd
                     (
                         $s->param('config')->web_config->flatten,
                         logger => $s->param('logger'),
-                        schema => $s->param('schema'),
-                        config => $s->param('config'),
+                        embedded => $s->param('embedded'),
                     )
                 },
                 dependencies =>
                 {
                     config => depends_on('/config'),
                     logger => depends_on('/logger'),
-                    schema => depends_on('/schema'),
+                    embedded => depends_on('/web_embedded'),
                 }
             );
             
@@ -148,6 +171,7 @@ class Poke::Cmd
     {
         if($self->no_fork)
         {
+            $self->container->get_service('logger')->get()->info('Poke NOT forking');
             $self->container->get_service('poke')->get()->start_poking();
         }
         else
@@ -161,6 +185,7 @@ class Poke::Cmd
             }
             else
             {
+                $self->container->get_service('logger')->get()->info('Poke forked successfully');
                 $self->container->get_service('poke')->get()->start_poking();
             }
         }

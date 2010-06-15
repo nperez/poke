@@ -8,7 +8,7 @@ role Poke::Web::Middleware
     use Scalar::Util('weaken');
 
     has app => (is => 'ro', isa => CodeRef, required => 1);
-    has response => (is => 'ro', isa => PSGIResponse);
+    has response => (is => 'ro', isa => PSGIResponse, writer => 'set_response');
     has env => (is => 'rw', isa => HashRef);
 
     method wrap(ClassName $class: CodeRef $app, @args)
@@ -23,6 +23,7 @@ role Poke::Web::Middleware
         $self->preinvoke();
         $self->invoke();
         $self->postinvoke();
+        return $self->response;
     }
 
     method preinvoke()
@@ -32,7 +33,7 @@ role Poke::Web::Middleware
 
     method invoke()
     {
-        $self->response($self->app->($self->env));
+        $self->set_response(($self->app)->($self->env));
     }
 
     method postinvoke()

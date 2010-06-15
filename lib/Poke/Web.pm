@@ -2,10 +2,14 @@ package Poke::Web;
 use MooseX::Declare;
 class Poke::Web
 {
-    use Poke::Web::Embedded;
+    use Moose::Util::TypeConstraints;
+    use MooseX::Types::Moose(':all');
+    use MooseX::Types::Structured(':all');
     use POEx::Types(':all');
     use POEx::Types::PSGIServer(':all');
     use Poke::Types(':all');
+
+    use Socket;
     
     use aliased 'POEx::Role::Event';
 
@@ -19,26 +23,30 @@ class Poke::Web
         handles => [qw/ debug info notice warning error /]
     );
 
-    has schema =>
+    has embedded =>
     (
         is => 'ro',
-        isa => 'Poke::Schema',
-        required => 1, 
+        isa => CodeRef,
+        required => 1,
     );
 
-    has config =>
+    has _current_connections =>
     (
         is => 'ro',
-        isa => 'Poke::ConfigLoader',
-        required => 1,
+        isa => HashRef[Tuple[Str, Int]],
+        traits => ['Hash'],
+        default => sub { +{ } },
+        handles =>
+        {
+            '_add_connection' => 'set',
+            '_get_connection' => 'get',
+            '_del_connection' => 'delete',
+        }
     );
 
     after _start
     {
-        Poke::Web::Embedded->set_logger($self->logger);
-        Poke::Web::Embedded->set_schema($self->schema);
-        Poke::Web::Embedded->set_config($self->config);
-        $self->register_service(Poke::Web::Embedded->run_if_script());
+        $self->register_service($self->embedded);
         $self->poe->kernel->sig('DIE', 'exception_handler');
     }
     
@@ -46,6 +54,25 @@ class Poke::Web
     {
         $self->poe->kernel->sig_handled();
         $self->error("Exception occured in $ex->{event}: $ex->{error_str}");
+    }
+
+    after handle_on_connect(GlobRef $socket, Str $address, Int $port, WheelID $id) is Event
+    {
+        $self->_add_connection("$socket", [Socket::inet_ntoa($address), $port]);
+    }
+
+    around generate_psgi_env(PSGIServerContext $c) returns (HashRef)
+    {
+        my $hash = $self->$orig($c);
+        my $conn = $self->_get_connection('' . $c->{'wheel'}->get_input_handle);
+        $hash->{'poke.web.connecting_ip'} = $conn->[0];
+        $hash->{'poke.web.connecting_port'} = $conn->[1];
+        return $hash;
+    }
+
+    before close(PSGIServerContext $c)
+    {
+        $self->_del_connection('' . $c->{'wheel'}->get_input_handle);
     }
 
 }
