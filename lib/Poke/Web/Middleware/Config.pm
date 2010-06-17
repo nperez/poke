@@ -3,7 +3,7 @@ use MooseX::Declare;
 
 class Poke::Web::Middleware::Config
 {
-    with 'Poke::Web::Middleware';
+    with 'Fancy::Middleware';
     use MooseX::Types::Moose(':all');
     
     has config => (is => 'ro', isa => 'Poke::ConfigLoader', required => 1);

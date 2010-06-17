@@ -3,7 +3,7 @@ use MooseX::Declare;
 
 class Poke::Web::Middleware::Logger
 {
-    with 'Poke::Web::Middleware';
+    with 'Fancy::Middleware';
     use MooseX::Types::Moose(':all');
     
     has logger => (is => 'ro', isa => 'Poke::Logger', required => 1);

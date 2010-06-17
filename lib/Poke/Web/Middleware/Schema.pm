@@ -3,7 +3,7 @@ use MooseX::Declare;
 
 class Poke::Web::Middleware::Schema
 {
-    with 'Poke::Web::Middleware';
+    with 'Fancy::Middleware';
     use MooseX::Types::Moose(':all');
     
     has schema => (is => 'ro', isa => 'Poke::Schema', required => 1);
